@@ -1,8 +1,6 @@
 # imports
 import typer
 
-from rich import print
-
 # typer config
 ## default kwargs
 default_kwargs = {

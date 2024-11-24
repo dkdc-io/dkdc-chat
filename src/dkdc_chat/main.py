@@ -3,7 +3,9 @@ import os
 from dkdc_util import now, uuid, get_dkdc_dir
 from dkdc_state import State, ibis, dt
 
+from dkdc_user import User
 from dkdc_lake import Lake
+from dkdc_lake.file import File
 
 
 # class
@@ -13,8 +15,9 @@ class Chat(State):
             dbpath = os.path.join(get_dkdc_dir(), "chat.db")
         super().__init__(dbpath=dbpath)
 
-        # use data lake for attachments TODO: implement this
-        lake = Lake()
+        # other states
+        self.user = User()
+        self.lake = Lake()
 
     def _cons(self) -> (ibis.BaseBackend, ibis.BaseBackend):
         # create write connection
@@ -116,24 +119,52 @@ class Chat(State):
         thread_id: str,
         subject: str,
         body: str,
-        attachments: list[str] = None,
+        attachments: list[File] = None,
         version: int = None,
         status: str = None,
         description: str = None,
         labels: list[str] = None,
     ):
         assert (to is not None) and (from_ is not None), "to and from_ are required"
+        assert all(
+            isinstance(a, File) for a in attachments
+        ), "attachments must be a list of File objects"
 
+        # message id
+        id = uuid()
+
+        # TODO: bad idea? easier for testing for now
+        if not self.user.contains_user(username=from_):
+            self.user.append_user(username=from_)
+
+        # TODO: should users go in the vault?
+        u = self.user.get_user(username=from_)
+        user_id = u["id"]
+
+        # append attachments to lake
+        attachment_ids = []
+        for file in attachments:
+            f = self.lake.append_file(
+                user_id=user_id,
+                path=id,
+                filename=str(file.filename),
+                data=bytes(file.data),
+                description="dkdc-chat attachment",
+                labels=["attachment"],
+            )
+            attachment_ids.append(f["id"])
+
+        # append message
         data = {
             "idx": [now()],
-            "id": [uuid()],
+            "id": [id],
             "to": [to],
             "from": [from_],
             "convo_id": [convo_id],
             "thread_id": [thread_id],
             "subject": [subject],
             "body": [body],
-            "attachments": [",".join(attachments) if attachments else None],
+            "attachments": [",".join(attachment_ids) if attachments else None],
             "version": [version],
             "status": [status],
             "description": [description],
@@ -153,7 +184,7 @@ class Chat(State):
         thread_id: str,
         subject: str,
         body: str,
-        attachments: list[str] = None,
+        attachments: list[str],
         version: int = None,
         status: str = None,
         description: str = None,
